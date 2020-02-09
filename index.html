@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JWT Multiple Request Refresh Token</title>
+  <style>
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    max-width: 1000px;
+    margin: 30px auto;
+  }
+  button {
+    border: 0;
+    outline: 0;
+    color: #fff;
+    background-color: #1890ff;
+    height: 32px;
+    padding: 0 15px;
+    font-size: 14px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button + button {
+    margin-left: 8px;
+  }
+  #token {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 60px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 20px rgba(143, 168, 191, 0.35);
+  }
+  #logs {
+    margin-top: 20px;
+    background: #fcfcfc;
+    padding: 20px;
+  }
+  #logs div {
+    margin-bottom: 3px;
+  }
+  .buttons {
+    display: flex;
+    align-content: center;
+    justify-content: center;
+  }
+  </style>
+</head>
+<body>
+<div id="token" title="Token">-</div>
+<div class="buttons">
+  <button id="login">Login</button>
+  <button id="send-requests">Requests</button>
+</div>
+<div id="logs"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.19.2/axios.min.js"
+        integrity="sha256-T/f7Sju1ZfNNfBh7skWn0idlCBcI3RwdLSS4/I7NQKQ=" crossorigin="anonymous"></script>
+<script type="text/javascript">
+(() => {
+  /* |
+   * | A bit of initial logic for the functioning
+   * | of buttons, obtaining a token, etc.
+   * |
+   */
+
+  axios.defaults.baseURL = '/api'
+
+  const STORAGE_TOKEN_KEY = 'profile-token'
+  let currentToken = null
+
+  /**
+   * Display information on screen
+   * @param {string} message
+   */
+  const log = (message) => {
+    const element = document.createElement('div')
+    element.innerText = message
+    logsElement.prepend(element)
+  }
+
+  /**
+   * Updating the token throughout the application
+   * @para {string} token
+   */
+  const setToken = (token) => {
+    const cutToken = `${token.substring(0, 5)}..${token.substring(token.length - 5)}`
+
+    log(`Set token: ${cutToken}`)
+    localStorage.setItem(STORAGE_TOKEN_KEY, token)
+    axios.defaults.headers['Authorization'] = 'Bearer ' + token
+    tokenElement.textContent = cutToken
+    currentToken = token
+  }
+
+  /**
+   * Remove the token from the entire application
+   */
+  const clearToken = () => {
+    log('Clear token')
+    localStorage.removeItem(STORAGE_TOKEN_KEY)
+    axios.defaults.headers['Authorization'] = null
+    tokenElement.textContent = '-'
+    currentToken = null
+  }
+
+  // Elements from the DOM
+  const sendRequestsElement = document.querySelector('#send-requests')
+  const tokenElement = document.querySelector('#token')
+  const loginElement = document.querySelector('#login')
+  const logsElement = document.querySelector('#logs')
+
+  // We will store our token in localStorage, after the first
+  // call, if there is a token, display it on the page
+  if (localStorage.getItem(STORAGE_TOKEN_KEY)) {
+    log('Install the token from LocalStorage')
+    setToken(localStorage.getItem(STORAGE_TOKEN_KEY))
+  }
+
+  // Imitate successful authorization
+  loginElement.addEventListener('click', () => {
+    const login = Math.random().toString(36).substring(7)
+    const pass = Math.random().toString(36).substring(7)
+
+    log(`Making an authorization request as ${login}`)
+
+    axios.get('/login', {
+      params: { login, pass }
+    })
+      .then(({ data }) => {
+        setToken(data.content.token)
+        log(`Token information: expires ${data.content.expires}s, refresh ${data.content.refresh}s`)
+      })
+      .finally(() => {
+        log('Authorization request completed')
+      })
+  })
+
+  sendRequestsElement.addEventListener('click', () => sendRequests())
+
+  /* |
+   * | This is the main part. Here is the logic for
+   * | the correct processing of requests.
+   * |
+   */
+
+  /** @type {Array} */
+  let requestsToRefresh = []
+
+  /** @type {boolean} */
+  let isRefreshRequesting = false
+
+  axios.interceptors.response.use(null, (err) => {
+    const { response, config } = err
+
+    if (response.status === 401) {
+      // If we have not logged in before, it makes no sense
+      // to try to get a new token
+      if (!currentToken) {
+        return Promise.reject(err)
+      }
+
+      // User is auth, probably token is expired, try renew
+      // And send all failed requests again
+      if (!isRefreshRequesting) {
+        isRefreshRequesting = true
+
+        log('Request for a new token')
+
+        // Send request to refresh token
+        axios.post('/refresh')
+          .then(({ data }) => {
+            log('New token received')
+            setToken(data.content.token)
+            requestsToRefresh.forEach((cb) => cb(data.content.token))
+          })
+          .catch(() => {
+            // If you have a closed system, you can also
+            // redirect/router to the login page
+            log('An error occurred while getting a new token')
+            clearToken()
+            requestsToRefresh.forEach((cb) => cb(null))
+          })
+          .finally(() => {
+            log('Clear queue of failed requests')
+            requestsToRefresh = []
+            isRefreshRequesting = false
+          })
+      }
+
+      log(`The request is waiting for a new token.. [${response.config.url}]`)
+      return new Promise((resolve, reject) => {
+        // In our variable (requests that expect a new token
+        // from the first request), we add a callback,
+        // which the first request to execute
+        requestsToRefresh.push((token) => {
+          if (token) {
+            config.headers.Authorization = 'Bearer ' + token
+            resolve(axios(config))
+          }
+
+          // If the first request could not update the token, we
+          // must return the basic request processing logic
+          reject(Promise.reject(err))
+        })
+      })
+    }
+
+    return Promise.reject(err)
+  })
+
+  /**
+   * We send several requests, some require authorization,
+   * some do not
+   */
+  function sendRequests() {
+    log('--------------------- Send Requests ---------------------')
+    axios.get('/public?1').then(() => log('-> SUCCESS: public #1')).catch(() => log('-> ERROR: public #1'))
+    axios.get('/secret?1').then(() => log('-> SUCCESS: secret #1')).catch(() => log('-> ERROR: secret #1'))
+    axios.get('/public?2').then(() => log('-> SUCCESS: public #2')).catch(() => log('-> ERROR: public #2'))
+    axios.get('/secret?2').then(() => log('-> SUCCESS: secret #2')).catch(() => log('-> ERROR: secret #2'))
+    axios.get('/public?3').then(() => log('-> SUCCESS: public #3')).catch(() => log('-> ERROR: public #3'))
+    axios.get('/secret?3').then(() => log('-> SUCCESS: secret #3')).catch(() => log('-> ERROR: secret #3'))
+  }
+
+  // We immediately make requests when entering the page,
+  // as if we are getting to the internal page
+  // with several requests to the server
+  sendRequests()
+})()
+</script>
+</body>
+</html>

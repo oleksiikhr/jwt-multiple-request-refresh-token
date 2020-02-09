@@ -1,0 +1,14 @@
+{
+  "name": "jwt-multiple-request-refresh-token",
+  "version": "1.0.0",
+  "description": "Correct processing of several axios requests with token recovery",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "Akexey Khrushch",
+  "license": "MIT",
+  "dependencies": {
+    "jsonwebtoken": "^8.5.1"
+  }
+}
