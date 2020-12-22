@@ -203,7 +203,7 @@
 
           // If the first request could not update the token, we
           // must return the basic request processing logic
-          reject(Promise.reject(err))
+          reject(err)
         })
       })
     }

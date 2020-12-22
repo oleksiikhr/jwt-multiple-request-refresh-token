@@ -1,6 +1,8 @@
 # JWT Multiple Request Refresh Token
 
 ```shell script
+$ npm ci
+
 # Start server
 $ npm run start
 ```
