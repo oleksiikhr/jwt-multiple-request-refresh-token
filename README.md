@@ -7,4 +7,4 @@ $ npm ci
 $ npm run start
 ```
 
-[Medium](https://medium.com/@alexeykhr/jwt-multiple-request-refresh-token-693bb24e3a68)
+[Medium](https://medium.com/@oleksiikhr/jwt-multiple-request-refresh-token-693bb24e3a68)
